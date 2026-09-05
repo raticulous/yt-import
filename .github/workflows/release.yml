@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release Multi-Platform Binaries
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+            archive: zip
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+            archive: zip
+          # macOS (Darwin)
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+            archive: tar.gz
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+            archive: tar.gz
+          # Linux
+          - goos: linux
+            goarch: amd64
+            ext: ""
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
+            ext: ""
+            archive: tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: true
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          OUTPUT_NAME="yt-import${{ matrix.ext }}"
+          go build -ldflags="-s -w" -trimpath -o "bin/${OUTPUT_NAME}" ./cmd/yt-import
+
+      - name: Package archive
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [ "${VERSION}" = "" ] || [[ ! "${VERSION}" =~ ^v ]]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+          fi
+          if [ "${VERSION}" = "" ]; then
+            VERSION="v1.0.0"
+          fi
+
+          ASSET_NAME="yt-import_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p dist
+
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            cd bin
+            zip "../dist/${ASSET_NAME}.zip" yt-import${{ matrix.ext }} ../README.md ../LICENSE
+            cd ..
+          else
+            cd bin
+            tar -czvf "../dist/${ASSET_NAME}.tar.gz" yt-import${{ matrix.ext }} ../README.md ../LICENSE
+            cd ..
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 1
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Determine Tag
+        id: vars
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${TAG}" = "" ] || [[ ! "${TAG}" =~ ^v ]]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          fi
+          if [ "${TAG}" = "" ]; then
+            TAG="v1.0.0"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: yt-import ${{ steps.vars.outputs.tag }}
+          files: |
+            release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

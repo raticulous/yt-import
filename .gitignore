@@ -1,0 +1,37 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/yt-import
+/yt-import.exe
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Scratch directory
+scratch/
+
+# Sync Reports & Outputs
+import_report.md
+unmatched.json
+
+# Build and distribution artifacts
+bin/
+dist/
+
+
